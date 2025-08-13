@@ -1,0 +1,65 @@
+[
+  {
+    "address": "0x9a47f3289794e9bbc6a3c571f6d96ad4e7baed16",
+    "total_trades": 125,
+    "trades_per_hour": 41.67,
+    "buy_sell": "28/97",
+    "tokens": ["USDC", "USDT", "WETH"],
+    "recent_activity": 96,
+    "confidence": 0.85
+  },
+  {
+    "address": "0x55877bd7f2ee37bde55ca4b271a3631f3a7ef121",
+    "total_trades": 145,
+    "trades_per_hour": 72.5,
+    "buy_sell": "54/91",
+    "tokens": ["WETH", "USDC", "USDT"],
+    "recent_activity": 74,
+    "confidence": 0.85
+  },
+  {
+    "address": "0xcf5540fffcdc3d510b18bfca6d2b9987b0772559",
+    "total_trades": 126,
+    "trades_per_hour": 63,
+    "buy_sell": "86/40",
+    "tokens": ["WETH", "USDC", "USDT"],
+    "recent_activity": 66,
+    "confidence": 0.8
+  },
+  {
+    "address": "0xa9d1e15d94ed894aef73f0b8700beae4f3ad3e43",
+    "total_trades": 126,
+    "trades_per_hour": 42,
+    "buy_sell": "63/63",
+    "tokens": ["Various"],
+    "recent_activity": 62,
+    "confidence": 0.8
+  },
+  {
+    "address": "0x0e5891850bb3f03090f03010000806f080040100",
+    "total_trades": 150,
+    "trades_per_hour": 75,
+    "buy_sell": "68/82",
+    "tokens": ["WETH", "USDC", "USDT", "DAI"],
+    "recent_activity": 56,
+    "confidence": 0.75
+  },
+  {
+    "address": "0x64f2095cc11e4726078f4a64d4279c7e7fb7e6ec",
+    "total_trades": 98,
+    "trades_per_hour": 49,
+    "buy_sell": "43/55",
+    "tokens": ["WETH", "USDC", "USDT"],
+    "recent_activity": 54,
+    "confidence": 0.75
+  },
+  {
+    "address": "0xb7f52d4a8cf30b0b0c7516f7262492556d9f92d4",
+    "total_trades": 56,
+    "trades_per_hour": 56,
+    "buy_sell": "19/37",
+    "tokens": ["WETH"],
+    "recent_activity": 56,
+    "confidence": 0.7
+  }
+]

@@ -1,0 +1,23 @@
+markdownExploder: true
+prd:
+  prdFile: docs/prd.md
+  prdVersion: v4
+  prdSharded: true
+  prdShardedLocation: docs/prd
+  epicFilePattern: epic-{n}*.md
+architecture:
+  architectureFile: docs/architecture.md
+  architectureVersion: v4
+  architectureSharded: true
+  architectureShardedLocation: docs/architecture
+dev:
+  alwaysLoad:
+    - packages/runtime/src/runtime.ts
+    - packages/runtime/src/tools.eth.ts
+    - packages/runtime/src/tools.sql.ts
+    - packages/runtime/src/tools.dex.ts
+    - packages/runtime/src/indexer.ts
+    - packages/runtime/src/schema.sql
+debug:
+  enabled: true
+  level: info

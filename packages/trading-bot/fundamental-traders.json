@@ -1,0 +1,82 @@
+[
+  {
+    "address": "0x4f82e73edb06d29ff62c91ec8f5ff06571bdeb29",
+    "confidence": 0.9,
+    "profit_ratio": 10,
+    "unique_tokens": 11,
+    "trades_per_hour": 16.5,
+    "priority": 1
+  },
+  {
+    "address": "0x881d40237659c251811cec9c364ef91dc08d300c",
+    "confidence": 0.9,
+    "profit_ratio": 45,
+    "unique_tokens": 26,
+    "trades_per_hour": 15.33,
+    "priority": 2
+  },
+  {
+    "address": "0xb1f05c103cdd519e9f9785cda23c03635a598be4",
+    "confidence": 0.85,
+    "profit_ratio": 4.17,
+    "unique_tokens": 14,
+    "trades_per_hour": 15.5,
+    "priority": 3
+  },
+  {
+    "address": "0x4acb6c4321253548a7d4bb9c84032cc4ee04bfd7",
+    "confidence": 0.9,
+    "profit_ratio": 12,
+    "unique_tokens": 12,
+    "trades_per_hour": 4.33,
+    "priority": 4
+  },
+  {
+    "address": "0x58edf78281334335effa23101bbe3371b6a36a51",
+    "confidence": 0.8,
+    "profit_ratio": 3.86,
+    "unique_tokens": 15,
+    "trades_per_hour": 17,
+    "priority": 5
+  },
+  {
+    "address": "0x187fe1a8b76c60b85c00a2819152ff00ff642386",
+    "confidence": 0.75,
+    "profit_ratio": 7.67,
+    "unique_tokens": 8,
+    "trades_per_hour": 13,
+    "priority": 6
+  },
+  {
+    "address": "0xc17a40852e4bfe04bc81af355fdf132c539ba753",
+    "confidence": 0.75,
+    "profit_ratio": 5.25,
+    "unique_tokens": 8,
+    "trades_per_hour": 12.5,
+    "priority": 7
+  },
+  {
+    "address": "0x95c4f5b83aa70810d4f142d58e5f7242bd891cb0",
+    "confidence": 0.7,
+    "profit_ratio": 5.33,
+    "unique_tokens": 7,
+    "trades_per_hour": 9.5,
+    "priority": 8
+  },
+  {
+    "address": "0xef13101c5bbd737cfb2bf00bbd38c626ad6952f7",
+    "confidence": 0.7,
+    "profit_ratio": 9,
+    "unique_tokens": 7,
+    "trades_per_hour": 10,
+    "priority": 9
+  },
+  {
+    "address": "0xfef677f6bba94854b46cbc8cd6ccbd1253b6fd38",
+    "confidence": 0.65,
+    "profit_ratio": 6.5,
+    "unique_tokens": 7,
+    "trades_per_hour": 15,
+    "priority": 10
+  }
+]
