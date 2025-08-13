@@ -1,205 +1,104 @@
-# BMAD-Compatible Plan: Local Ethereum Intelligence System (TypeScript + DuckDB + Local Llama)
+# BMAD Plan: Minimal Maximally-Open Ethereum Planner (TypeScript)
 
-## Repo Layout
-eth-intel/
-  docs/
-    prd.md
-    architecture.md
-  bmad-core/
-    core-config.yaml
-  packages/
-    runtime/
-      src/
-        runtime.ts
-        tools.eth.ts
-        tools.sql.ts
-        tools.dex.ts
-        indexer.ts
-        schema.sql
-      package.json
-      tsconfig.json
-      .env.example
-  scripts/
-    run-local.sh
+## Intent
+Let a local LLM (Llama 3 via Ollama/llama.cpp) accept high-level questions, think deeply, produce a small JSON plan (1–8 steps), execute plan steps against a **local Geth/Lighthouse**, and synthesize an answer. Expose all practical **read-only** node capabilities via a single `chain.*` tool namespace + light SQL helpers.
+
+## Assumptions (aligns to existing codebase)
+- Node 20+, TypeScript.
+- You already run: Geth (HTTP 8545, WS 8546) + Lighthouse.
+- Project has a `packages/runtime/src` with a `runtime.ts` entry (we’ll keep it).
+- Optional DuckDB file for materializing intermediate datasets.
+- Local LLM exposes OpenAI-compatible endpoint (e.g., `http://127.0.0.1:11434/v1`).
+
+## Repo Layout (create/extend these files)
+packages/runtime/
+  src/
+    runtime.ts                # entrypoint (wire orchestration)
+    orchestrator.ts           # planner → execute → synthesize
+    tools.chain.ts            # all read-side RPC, WS, traces; transparent chunking + timeouts
+    tools.sql.ts              # minimal SQL helpers (query + materialize)
+  package.json
+  tsconfig.json
+.env.example
+docs/
+  prd.md
+  architecture.md
+bmad-core/
+  core-config.yaml
 
 ## bmad-core/core-config.yaml
 markdownExploder: true
 prd:
   prdFile: docs/prd.md
-  prdVersion: v4
-  prdSharded: true
-  prdShardedLocation: docs/prd
-  epicFilePattern: epic-{n}*.md
+  prdVersion: v1
+  prdSharded: false
 architecture:
   architectureFile: docs/architecture.md
-  architectureVersion: v4
-  architectureSharded: true
-  architectureShardedLocation: docs/architecture
+  architectureVersion: v1
+  architectureSharded: false
 dev:
   alwaysLoad:
     - packages/runtime/src/runtime.ts
-    - packages/runtime/src/tools.eth.ts
+    - packages/runtime/src/orchestrator.ts
+    - packages/runtime/src/tools.chain.ts
     - packages/runtime/src/tools.sql.ts
-    - packages/runtime/src/tools.dex.ts
-    - packages/runtime/src/indexer.ts
-    - packages/runtime/src/schema.sql
 debug:
   enabled: true
   level: info
 
 ## docs/prd.md
-### 1. Problem & Goals
-Build a local-only Ethereum intelligence layer on macOS using TypeScript + DuckDB + local Llama (Ollama or llama.cpp) that answers arbitrary Ethereum mainnet questions via direct tool-calling. Data sources:
-- Geth at http://127.0.0.1:8545 and ws://127.0.0.1:8546
-- DuckDB file ~/eth-index/eth.duckdb (rolling window)
-Must answer questions like:
-1) Most profitable wallets in last 5 days
-2) Monitor new liquidity pools + assess safety
-3) New safe projects attracting wallets
-4) Related wallets for an address
-5) Wallet groups in trustworthy projects
-6) Foundational wallets launching a token
+### Goal
+Answer complex, high-level questions about Ethereum mainnet locally. The model must: (1) think/plan, (2) call tools to fetch/derive data, (3) synthesize a clear result. No REST servers, one process, local privacy.
 
-### 2. Users
-Local power users, traders, analysts.
+### Users
+Local power user on macOS with Geth/Lighthouse running.
 
-### 3. Constraints
-One store only: DuckDB (or no-DB mode). No REST. No remote infra. Local LLM.
+### Scope
+- Expose all **read-only** JSON-RPC for analysis: `eth_*`, `net_*`, `web3_*`, `txpool_*`, `debug_*`, `trace_*` (+ client read methods).
+- Deny only node/key-control: `personal_*`, `account_*`, `admin_*`, `miner_*`, `engine_*`.
+- Helpers: `getLogsWindow`, `traceBlockRange`, `traceTxBatch`.
+- Optional SQL: `sql.query`, `sql.materialize(name, SELECT ...)` to store intermediates in DuckDB for fast joins/aggregations.
 
-### 4. Success Metrics
-P95 ≤ 3s for indexed queries on 5–14 day windows. Freshness ≤ 1 block behind head. Accuracy ≥ 99.9% for supported decoders.
+### Success Metrics
+- Can decompose a question into a JSON plan and complete ≤ 8 steps.
+- Typical Q returns within ~90s with concrete numbers + “what I did”.
+- Supports example Qs (profitable wallets 5d, new pools safety, founders, related wallets, etc.) without changing code.
 
-### 5. Features
-- Optional indexer: backfill last N days; tail into DuckDB
-- Minimal schema: erc20_transfers, pools, dex_events
-- Views for PnL, trending, links
-- LLM-callable tools:
-  - eth.rpc(method, params) allowlist
-  - dex.scan_new_pools(window)
-  - wallet.top_profit(days, limit)
-  - wallet.related(addr, days)
-  - project.trending(window_days)
-  - token.founders(token_addr, days)
-  - sql.query(name, params) read-only
-- Guardrails: time caps, LIMITs
-
-### 6. Non-Goals
-No archival data, multi-DB stacks, or remote servers.
-
-### 7. Risks
-Disk pressure → retention; ABI gaps → registry; slow no-DB → default to DuckDB.
-
-### 8. Epics
-Epic A: Runtime & LLM loop  
-Epic B: Ingestion (DuckDB)  
-Epic C: Analytics (six flagship Qs)  
-Epic D: ETH traces add-on  
-Epic E: Packaging & scripts
+### Non-Goals
+- No write-side or node control actions. No remote infra.
 
 ## docs/architecture.md
-### 1. Runtime
-Node 20+, TypeScript, local LLM at http://127.0.0.1:11434/v1 (Ollama or llama.cpp), tool-calling loop in runtime.ts.
+### Runtime
+- OpenAI-compatible client pointed at local LLM (Ollama/llama.cpp).
+- `orchestrator.ts` prompts model for a **Plan JSON**: `{goal, steps:[{id,tool,args,why?,saveAs?}]}`.
+- Tools execute sequentially; large results can be materialized as DuckDB tables (optional).
+- Final synthesis call generates the human answer + short provenance.
 
-### 2. Modes
-Mode A – no-DB: RPC only  
-Mode B – DuckDB: single file, rolling partitions
+### Tools
+- `chain.rpc(method, params[])`: forwards read-side RPC to `http://127.0.0.1:8545`; rejects `personal_*|account_*|admin_*|miner_*|engine_*`. Per-call timeout (e.g., 60s).
+- `chain.getLogsWindow({fromBlock,toBlock,address?,topics?})`: auto-chunks long ranges (e.g., 5k blocks/chunk), merges results.
+- `chain.traceBlockRange({start,end})`: iterates `debug_traceBlockByNumber`/`trace_block` per block.
+- `chain.traceTxBatch({txHashes:[]})`: runs `debug_traceTransaction` over a small explicit set.
+- `sql.query(sql, params?)`: read-only; injects LIMIT 10k if missing.
+- `sql.materialize(name, selectSql)`: creates/overwrites a table/view; returns row count.
 
-### 3. Data Model (DuckDB)
-- erc20_transfers(block, ts, token, from, to, value, tx_hash, log_index)
-- pools(dex, pool, token0, token1, fee_tier, first_block, first_ts)
-- dex_events(block, ts, dex, pool, event, tx_hash, log_index, sender, recipient, amount0, amount1)
-- Views: wallet_day_inout, project_trending, wallet_links
+### Planner Prompts (system)
+- Plan: “You are a planner. Think carefully. Output ONLY JSON: {goal, steps[ {id,tool,args,why?,saveAs?} ]}. Tools: chain.rpc, chain.getLogsWindow, chain.traceBlockRange, chain.traceTxBatch, sql.query, sql.materialize. Prefer small, verifiable steps. Keep ‘why’ short.”
+- Synthesis: “You are an Ethereum analyst. Given step summaries (counts, samples, block windows), produce a concise answer with concrete numbers and a short ‘what I did’ section. Note if data is partial.”
 
-### 4. Tools API
-- eth.rpc: eth_blockNumber, eth_getLogs, eth_getBlockByNumber, eth_getTransactionReceipt
-- wallet.top_profit(days, limit)
-- dex.scan_new_pools(days)
-- project.trending(window_days)
-- wallet.related(addr, days)
-- token.founders(token_addr, days)
-- sql.query(queryName, params) read-only
-
-### 5. Ingestion
-Backfill last N days via eth_getLogs (ERC-20 Transfer, UniV2 PairCreated, UniV3 PoolCreated, Swap/Mint/Burn).
-Tail via WS head subscription. Retention tasks.
-
-### 6. Dev/Run
-.env:
-MODE=duckdb
+## .env.example
 RPC_HTTP=http://127.0.0.1:8545
 RPC_WS=ws://127.0.0.1:8546
 DUCKDB_PATH=~/eth-index/eth.duckdb
-RETENTION_DAYS=14
 LLM_BASE_URL=http://127.0.0.1:11434/v1
 LLM_MODEL=llama3.1:8b
+LLM_TEMPERATURE=0.2
+LLM_MAX_TOKENS=2048
+LLM_NUM_CTX=8192
 
-run-local.sh:
-ollama pull llama3.1:8b
-npm run start
-
-## packages/runtime/src/schema.sql
-CREATE TABLE IF NOT EXISTS erc20_transfers (
-  block BIGINT,
-  ts TIMESTAMP,
-  token TEXT,
-  "from" TEXT,
-  "to"   TEXT,
-  value DECIMAL(38,0),
-  tx_hash BLOB,
-  log_index INTEGER
-);
-CREATE TABLE IF NOT EXISTS pools (
-  dex TEXT,
-  pool TEXT,
-  token0 TEXT,
-  token1 TEXT,
-  fee_tier INTEGER,
-  first_block BIGINT,
-  first_ts TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS dex_events (
-  block BIGINT,
-  ts TIMESTAMP,
-  dex TEXT,
-  pool TEXT,
-  event TEXT,
-  tx_hash BLOB,
-  log_index INTEGER,
-  sender TEXT,
-  recipient TEXT,
-  amount0 DECIMAL(38,0),
-  amount1 DECIMAL(38,0)
-);
-
-## packages/runtime/src (story targets)
-runtime.ts:
-- OpenAI-compatible client to LLM_BASE_URL
-- Register tools.eth, tools.sql, tools.dex
-- Enforce guardrails
-
-tools.eth.ts:
-- viem client, allowlist RPC
-- getLogsWindow with chunking/retries
-
-tools.sql.ts:
-- duckdb bindings (read-only)
-- Named queries: top_profit, new_pools, related_wallets, project_trending, token_founders
-
-tools.dex.ts:
-- Decoders: ERC-20 Transfer, UniV2 PairCreated, UniV3 PoolCreated
-- Safety heuristics
-
-indexer.ts:
-- Backfill N days
-- WS tail into DuckDB
-- Retention
-
-.env.example:
-See Dev/Run section
-
-package.json:
+## packages/runtime/package.json
 {
-  "name": "@onchain-intel/runtime",
+  "name": "@onchain-open/runtime",
   "private": true,
   "type": "module",
   "scripts": {
@@ -208,11 +107,11 @@ package.json:
     "dev": "tsx src/runtime.ts"
   },
   "dependencies": {
-    "duckdb": "^1.0.0",
-    "viem": "^2.9.0",
-    "zod": "^3.23.8",
+    "dotenv": "^16.4.5",
     "openai": "^4.57.0",
-    "dotenv": "^16.4.5"
+    "viem": "^2.9.0",
+    "duckdb": "^1.0.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "typescript": "^5.5.4",
@@ -220,7 +119,7 @@ package.json:
   }
 }
 
-tsconfig.json:
+## packages/runtime/tsconfig.json
 {
   "compilerOptions": {
     "target": "ES2022",
@@ -234,12 +133,210 @@ tsconfig.json:
   "include": ["src"]
 }
 
-## BMAD Execution Steps
-1. Planning: Save this PRD + Architecture to docs/.
-2. Switch to IDE & Shard: PO shards per core-config.yaml.
-3. SM/Dev/QA: One story at a time.
+## packages/runtime/src/tools.chain.ts (skeleton)
+import { z } from "zod";
 
-### First Three Stories
-Story A1: LLM tool-calling runtime
-Story B1: RPC & log windowing helper
-Story C1: DuckDB schema + top-profit query
+// Deny dangerous namespaces; allow all practical read methods.
+const DENY = /^(personal_|account_|admin_|miner_|engine_)/;
+const RPC = process.env.RPC_HTTP || "http://127.0.0.1:8545";
+
+export async function rpc(method: string, params: any[] = []) {
+  if (DENY.test(method)) throw new Error(`Method ${method} is not allowed`);
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await fetch(RPC, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`RPC ${method} status ${res.status}`);
+    const json = await res.json();
+    if (json.error) throw new Error(JSON.stringify(json.error));
+    return json.result;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Helper: auto-chunk eth_getLogs for long spans
+export async function getLogsWindow(args: {
+  fromBlock: number | string;
+  toBlock: number | string;
+  address?: string;
+  topics?: (string | null)[];
+}) {
+  const span = 5000;
+  const start = typeof args.fromBlock === "string" ? parseInt(args.fromBlock) : args.fromBlock;
+  const end = args.toBlock === "latest" ? await latestBlock() :
+              (typeof args.toBlock === "string" ? parseInt(args.toBlock) : args.toBlock);
+  const out: any[] = [];
+  for (let a = start; a <= end; a += span) {
+    const b = Math.min(a + span - 1, end);
+    const chunk = await rpc("eth_getLogs", [{
+      fromBlock: "0x" + a.toString(16),
+      toBlock:   "0x" + b.toString(16),
+      address: args.address,
+      topics: args.topics
+    }]);
+    out.push(...chunk);
+  }
+  return out;
+}
+
+export async function traceBlockRange(args: { start: number; end: number }) {
+  const out: any[] = [];
+  for (let n = args.start; n <= args.end; n++) {
+    const traces = await rpc("debug_traceBlockByNumber", ["0x" + n.toString(16), {}]);
+    out.push({ blockNumber: n, traces });
+  }
+  return out;
+}
+
+export function traceTxBatch(args: { txHashes: string[] }) {
+  return Promise.all(args.txHashes.map(tx => rpc("debug_traceTransaction", [tx, {}])));
+}
+
+async function latestBlock() {
+  const hex = await rpc("eth_blockNumber", []);
+  return parseInt(hex, 16);
+}
+
+## packages/runtime/src/tools.sql.ts (skeleton)
+import duckdb from "duckdb";
+
+const db = new duckdb.Database(process.env.DUCKDB_PATH || ":memory:");
+
+export async function query(sqlText: string, params?: Record<string, any>) {
+  const text = /\blimit\b/i.test(sqlText) ? sqlText : `${sqlText}\nLIMIT 10000`;
+  return exec(text, params);
+}
+
+export async function materialize(name: string, selectSql: string) {
+  const safe = name.replace(/[^a-zA-Z0-9_]/g, "_");
+  await exec(`CREATE OR REPLACE TABLE ${safe} AS ${selectSql}`);
+  const rows = await exec(`SELECT COUNT(*) AS n FROM ${safe}`);
+  return { name: safe, rows: rows[0]?.n ?? 0 };
+}
+
+function exec(sqlText: string, params?: Record<string, any>) {
+  return new Promise<any[]>((resolve, reject) => {
+    db.all(sqlText, Object.values(params || {}), (err, rows) => {
+      if (err) reject(err); else resolve(rows);
+    });
+  });
+}
+
+## packages/runtime/src/orchestrator.ts (skeleton)
+import { OpenAI } from "openai";
+import { z } from "zod";
+import * as chain from "./tools.chain";
+import * as sql from "./tools.sql";
+
+const client = new OpenAI({ baseURL: process.env.LLM_BASE_URL, apiKey: "ollama" });
+const MODEL = process.env.LLM_MODEL || "llama3.1:8b";
+
+const Step = z.object({
+  id: z.string(),
+  tool: z.enum(["chain.rpc","chain.getLogsWindow","chain.traceBlockRange","chain.traceTxBatch","sql.query","sql.materialize"]),
+  args: z.record(z.any()),
+  why: z.string().max(120).optional(),
+  saveAs: z.string().optional()
+});
+const Plan = z.object({ goal: z.string(), steps: z.array(Step).min(1).max(8) });
+
+export async function answer(question: string) {
+  const plan = await makePlan(question);
+  const summaries: any[] = [];
+  for (const s of plan.steps) {
+    const result = await runStep(s);
+    summaries.push(summarize(s, result));
+    if (s.saveAs && s.tool === "sql.query") {
+      await sql.materialize(s.saveAs, s.args.sqlText);
+    }
+  }
+  return synthesize(question, summaries);
+}
+
+async function makePlan(question: string) {
+  const sys = `You are a planner. Output ONLY JSON: {"goal": "...", "steps":[{"id":"s1","tool":"...","args":{...},"why":"short","saveAs":"opt"}] }.
+Tools: chain.rpc, chain.getLogsWindow, chain.traceBlockRange, chain.traceTxBatch, sql.query, sql.materialize.
+Decompose into small, verifiable steps. Prefer fetching small, relevant slices then materialize and aggregate.`;
+  const rsp = await client.chat.completions.create({
+    model: MODEL, temperature: 0.2,
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: `Question: ${question}\nReturn ONLY JSON plan.` }
+    ]
+  });
+  const text = rsp.choices[0]?.message?.content || "{}";
+  const json = JSON.parse(text);
+  return Plan.parse(json);
+}
+
+async function runStep(s: z.infer<typeof Step>) {
+  switch (s.tool) {
+    case "chain.rpc":            return chain.rpc(s.args.method, s.args.params || []);
+    case "chain.getLogsWindow":  return chain.getLogsWindow(s.args);
+    case "chain.traceBlockRange":return chain.traceBlockRange(s.args);
+    case "chain.traceTxBatch":   return chain.traceTxBatch(s.args);
+    case "sql.query":            return sql.query(s.args.sqlText, s.args.params);
+    case "sql.materialize":      return sql.materialize(s.args.name, s.args.sqlText);
+  }
+}
+
+function summarize(step: any, res: any) {
+  if (Array.isArray(res)) return { id: step.id, tool: step.tool, rows: res.length, sample: res.slice(0,3) };
+  if (typeof res === "object") return { id: step.id, tool: step.tool, keys: Object.keys(res).slice(0,10) };
+  return { id: step.id, tool: step.tool, value: res };
+}
+
+async function synthesize(question: string, summaries: any[]) {
+  const sys = `You are an Ethereum analyst. Using the step summaries, provide a concise answer with concrete numbers and a short "what I did". If partial, say so.`;
+  const rsp = await client.chat.completions.create({
+    model: MODEL, temperature: 0.3,
+    messages: [
+      { role: "system", content: sys },
+      { role: "user", content: `Question: ${question}\nSummaries:\n${JSON.stringify(summaries, null, 2)}` }
+    ]
+  });
+  return rsp.choices[0]?.message?.content || "";
+}
+
+## packages/runtime/src/runtime.ts (wire-up)
+import "dotenv/config";
+import { answer } from "./orchestrator";
+
+async function main() {
+  const q = process.argv.slice(2).join(" ") || "Find the most profitable wallets in the last 5 days.";
+  const out = await answer(q);
+  console.log("\n=== ANSWER ===\n" + out);
+}
+main().catch(e => { console.error(e); process.exit(1); });
+
+## BMAD Stories (execute in order)
+
+### Story 1 — Tool Surface
+- Create `tools.chain.ts` with: rpc, getLogsWindow, traceBlockRange, traceTxBatch (deny admin/key/engine; per-call timeout; logs chunking).
+- Create `tools.sql.ts` with: query (inject LIMIT 10k if missing), materialize(name, SELECT ...).
+- Acceptance: can call `node packages/runtime/dist/runtime.js "eth_blockNumber via chain.rpc"` and get a valid result.
+
+### Story 2 — Planner
+- Create `orchestrator.ts` with Plan schema, plan call, step execution, and synthesis.
+- Acceptance: given a natural question, planner returns a valid plan (≤ 8 steps), executes, and produces an answer.
+
+### Story 3 — Sane Defaults for Deep Thinking
+- In `.env`, set LLM_NUM_CTX=8192, LLM_MAX_TOKENS=2048, LLM_TEMPERATURE=0.2.
+- Acceptance: for a multi-step question (e.g., “top profitable wallets 5d”), system returns an answer with a short “what I did”.
+
+### (Optional) Story 4 — DuckDB Wire-up
+- Point DUCKDB_PATH to a file; confirm `sql.materialize` persists tables and `sql.query` can join them.
+- Acceptance: the planner can save an intermediate dataset and use it in a later step.
+
+## Runbook
+brew install ollama
+ollama pull llama3.1:8b
+cp .env.example .env    # adjust RPC_HTTP/WS and LLM_BASE_URL/MODEL
+npm install
+npm run dev             # pass your question as CLI args or wire a REPL
