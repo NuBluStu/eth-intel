@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --enable-source-maps dist/runtime.js",
     "dev": "tsx src/runtime.ts",
+    "dev:v2": "tsx src/runtime-v2.ts",
     "chat": "tsx src/chat-with-ai.ts",
     "test": "tsx test-queries.ts",
     "validate": "tsx test-queries.ts"
