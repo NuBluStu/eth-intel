@@ -7,20 +7,23 @@
     "start": "node --enable-source-maps dist/runtime.js",
     "dev": "tsx src/runtime.ts",
     "dev:v2": "tsx src/runtime-v2.ts",
+    "dev:claude": "tsx src/runtime-claude.ts",
+    "dev:advanced": "tsx src/runtime-advanced.ts",
     "chat": "tsx src/chat-with-ai.ts",
     "test": "tsx test-queries.ts",
     "validate": "tsx test-queries.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.60.0",
+    "dotenv": "^16.4.5",
     "duckdb": "^1.0.0",
-    "viem": "^2.9.0",
-    "zod": "^3.23.8",
     "openai": "^4.57.0",
-    "dotenv": "^16.4.5"
+    "viem": "^2.9.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
+    "@types/node": "^20.0.0",
     "tsx": "^4.16.2",
-    "@types/node": "^20.0.0"
+    "typescript": "^5.5.4"
   }
 }

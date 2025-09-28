@@ -9,12 +9,19 @@ import { ethRpc } from "./tools/data/ethRpc.js";
 import { beaconApi } from "./tools/data/beaconApi.js";
 import { database } from "./tools/data/db.js";
 import { analysisUtils } from "./tools/analysis/utils.js";
+import { swingTrading } from "./tools/analysis/swingTrading.js";
 
 // Initialize OpenAI client
+const isOpenAI = process.env.LLM_BASE_URL?.includes('openai.com');
 const client = new OpenAI({
   baseURL: process.env.LLM_BASE_URL || "http://127.0.0.1:11434/v1",
-  apiKey: process.env.OPENAI_API_KEY || "ollama"
+  apiKey: isOpenAI ? process.env.OPENAI_API_KEY : "ollama"
 });
+
+if (isOpenAI && !process.env.OPENAI_API_KEY) {
+  console.error("❌ OpenAI API key not found! Please set OPENAI_API_KEY in .env");
+  process.exit(1);
+}
 
 const MODEL = process.env.LLM_MODEL || "llama3.1:8b";
 
@@ -105,6 +112,7 @@ const TOOLS = {
   "ethRpc.getLogsChunked": ethRpc.getLogsChunked,
   "ethRpc.ethCall": ethRpc.ethCall,
   "ethRpc.gasPrice": ethRpc.gasPrice,
+  "ethRpc.getGasPrice": ethRpc.gasPrice, // Alias
   "ethRpc.traceTransaction": ethRpc.traceTransaction,
   "ethRpc.traceBlock": ethRpc.traceBlock,
   
@@ -132,7 +140,14 @@ const TOOLS = {
   "analysis.backtest": analysisUtils.backtest,
   "analysis.mean": analysisUtils.mean,
   "analysis.median": analysisUtils.median,
-  "analysis.standardDeviation": analysisUtils.standardDeviation
+  "analysis.standardDeviation": analysisUtils.standardDeviation,
+  
+  // Swing Trading Analysis
+  "swingTrading.findNewERC20Tokens": swingTrading.findNewERC20Tokens,
+  "swingTrading.findEarlyBuyers": swingTrading.findEarlyBuyers,
+  "swingTrading.trackWalletProfits": swingTrading.trackWalletProfits,
+  "swingTrading.findProfitableSwingTraders": swingTrading.findProfitableSwingTraders,
+  "swingTrading.detectSwingPatterns": swingTrading.detectSwingPatterns
 };
 
 // Main orchestration function
@@ -210,22 +225,54 @@ export async function orchestrate(question: string): Promise<string> {
 }
 
 async function generatePlan(question: string): Promise<z.infer<typeof Plan>> {
-  const systemPrompt = `You are an Ethereum research assistant with access to comprehensive blockchain tools.
+  const systemPrompt = `You are an expert Ethereum research assistant. Create a JSON plan to answer questions using available blockchain tools.
 
-Available tools (use exact names):
-- ethRpc.getBlock, ethRpc.getBlockNumber, ethRpc.getTransaction, ethRpc.getBalance, ethRpc.getLogs, ethRpc.getLogsChunked
-- beacon.getValidators, beacon.getChainHead, beacon.getNetworkStatistics, beacon.getValidatorPerformance
-- db.query, db.materialize, db.getTopTokensByVolume, db.getWalletActivity
-- analysis.detectPumpAndDump, analysis.findRelatedWallets, analysis.analyzePortfolio
+AVAILABLE TOOLS:
+Ethereum RPC:
+- ethRpc.getBlockNumber() → returns number
+- ethRpc.getBlock(numberOrHash, includeTransactions) → returns block object
+- ethRpc.getBalance(address, blockTag) → returns bigint
+- ethRpc.getLogs({fromBlock, toBlock, address?, topics?}) → returns logs array
+- ethRpc.getLogsChunked({fromBlock, toBlock, address?, topics?}, chunkSize?) → auto-chunks large ranges
+- ethRpc.getTransaction(hash) → returns tx object
+- ethRpc.gasPrice() → returns bigint
+- ethRpc.isContract(address) → returns boolean
 
-Create a detailed plan to answer the question. Output ONLY valid JSON.
+Beacon/Consensus:
+- beacon.getChainHead() → returns head info
+- beacon.getValidators(stateId, status?) → returns validators
+- beacon.getNetworkStatistics() → returns network stats
 
-You can reference previous step results using {{stepId}} in args.
-Mark steps as parallel:true if they can run simultaneously.
+Database:
+- db.query(sql, params?) → execute SQL query
+- db.materialize(name, selectSql) → save query as table
+- db.getTopTokensByVolume(days?) → returns top tokens
+- db.getWalletActivity(address) → returns activity summary
 
-Example plan:
+Analysis:
+- analysis.detectPumpAndDump(prices, threshold?, timeWindow?) → detect pump & dump
+- analysis.findRelatedWallets(transactions) → find wallet relationships
+- analysis.analyzePortfolio(holdings) → analyze portfolio metrics
+- analysis.mean(values), analysis.median(values), analysis.standardDeviation(values)
+
+Swing Trading:
+- swingTrading.findNewERC20Tokens(days) → find tokens launched in last N days
+- swingTrading.findEarlyBuyers(token, withinBlocks?) → find early token buyers
+- swingTrading.trackWalletProfits(wallet, tokens[]) → track wallet's profits
+- swingTrading.findProfitableSwingTraders(days?, minWinRate?, minTrades?) → find profitable traders
+- swingTrading.detectSwingPatterns(transactions) → detect swing trading patterns
+
+IMPORTANT RULES:
+1. Output ONLY valid JSON, no markdown or explanations
+2. Use exact tool names from the list above
+3. For block ranges: get current block first, then calculate ranges as numbers
+4. ERC20 Transfer event topic: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+5. You can reference previous results with {{stepId}} notation
+6. Use parallel:true for independent steps
+
+Example for "Find profitable wallets in last 24 hours":
 {
-  "goal": "Analyze wallet activity",
+  "goal": "Find profitable wallets in last 24 hours",
   "steps": [
     {
       "id": "s1",
@@ -234,17 +281,20 @@ Example plan:
       "description": "Get current block"
     },
     {
-      "id": "s2", 
-      "tool": "ethRpc.getBalance",
-      "args": {"address": "0x123...", "blockTag": "latest"},
-      "description": "Check wallet balance"
+      "id": "s2",
+      "tool": "ethRpc.getLogsChunked",
+      "args": {
+        "fromBlock": 23131000,
+        "toBlock": 23138000,
+        "topics": ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"]
+      },
+      "description": "Get Transfer events for last 24h (assuming current block ~23138000)"
     },
     {
       "id": "s3",
-      "tool": "db.getWalletActivity",
-      "args": {"address": "0x123..."},
-      "parallel": true,
-      "description": "Get transaction history"
+      "tool": "analysis.findRelatedWallets",
+      "args": {"transactions": "{{s2}}"},
+      "description": "Analyze wallet relationships"
     }
   ]
 }`;
@@ -254,7 +304,7 @@ Example plan:
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await client.chat.completions.create({
+      const chatOptions: any = {
         model: MODEL,
         temperature: 0.3,
         max_tokens: 2048,
@@ -262,7 +312,14 @@ Example plan:
           { role: "system", content: systemPrompt },
           { role: "user", content: `Question: ${question}\n\nGenerate a JSON plan to answer this question.` }
         ]
-      });
+      };
+      
+      // Use JSON mode for GPT-4
+      if (isOpenAI && MODEL.includes('gpt-4')) {
+        chatOptions.response_format = { type: "json_object" };
+      }
+      
+      const response = await client.chat.completions.create(chatOptions);
       
       let content = response.choices[0]?.message?.content || "{}";
       
