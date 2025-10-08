@@ -1,41 +1,43 @@
-# 🚀 Ethereum Intelligence System
+# 🚀 ETH Intel - Meme Coin Profit Maximizer
 
-An advanced AI-powered blockchain analysis system for Ethereum mainnet, featuring real-time data indexing, intelligent token safety analysis, and automated copy trading capabilities.
+An autonomous AI-powered meme coin trading system that gives Llama direct access to Ethereum mainnet for maximum profit generation through intelligent swing trading.
+
+## 💰 Core Mission
+**Maximize profits by autonomously trading meme coins with LLM-powered decision making**
 
 ## 🌟 Features
 
-### Core Capabilities
-- **🤖 AI-Powered Analysis**: Local Llama3 integration for intelligent blockchain queries
-- **📊 Real-Time Indexing**: Continuous blockchain data ingestion via Geth RPC
-- **💾 Local Database**: DuckDB-powered analytics with rolling data windows
-- **🔍 27+ Analysis Tools**: Comprehensive blockchain investigation toolkit
+### Autonomous Trading Capabilities
+- **🤖 LLM-Powered Trading**: Llama3 makes autonomous buy/sell decisions
+- **💎 Meme Coin Focus**: Specialized in high-volatility meme token trading
+- **📈 Profit Engine**: 10 sophisticated rules for maximizing returns
+- **🛡️ Honeypot Detection**: Avoid scams with multi-layer safety checks
+- **🎯 Smart Money Tracking**: Follow wallets that consistently profit
+- **⚡ Real-Time Execution**: Direct Ethereum node integration for fast trades
 
-### Advanced Features
-- **Token Safety Analyzer**: Multi-factor scoring system for new token launches
-- **Copy Trading Bot**: Automated trading following successful wallets
-- **DEX Analytics**: Uniswap V2/V3 pool analysis and liquidity tracking
-- **Custom SQL Queries**: Flexible data analysis beyond predefined queries
-- **MEV Detection**: Identify arbitrage and sandwich attack opportunities
-- **Gas Optimization**: Real-time gas price tracking and optimal timing
+### Trading Strategies
+- **Conservative**: 10% drawdown, 2:1 risk/reward minimum
+- **Balanced**: 15-20% profit targets, 1-24 hour holds
+- **Aggressive**: 20-30% quick gains, momentum breakouts
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   Local Llama3 AI                       │
-│                 (Ollama at :11434)                      │
+│                 Autonomous Llama3 Trader                │
+│                   (Ollama at :11434)                    │
 └────────────────────┬────────────────────────────────────┘
                      │
         ┌────────────▼────────────┐
-        │   Runtime Orchestrator   │
-        │   (27+ Tools Available)  │
+        │   LLM Orchestrator      │
+        │  (Direct Node Access)   │
         └────────────┬────────────┘
                      │
     ┌────────────────┼────────────────┐
     │                │                │
 ┌───▼───┐      ┌─────▼─────┐    ┌────▼────┐
-│  RPC  │      │  DuckDB   │    │  Token  │
-│ Tools │      │   Tools   │    │Analysis │
+│Trading│      │  Meme     │    │ Profit  │
+│ Tools │      │  Trader   │    │ Engine  │
 └───┬───┘      └─────┬─────┘    └────┬────┘
     │                │                │
 ┌───▼───────────────▼────────────────▼───┐
@@ -48,162 +50,188 @@ An advanced AI-powered blockchain analysis system for Ethereum mainnet, featurin
 
 ### Prerequisites
 - Node.js 20+
-- Local Geth node running (http://127.0.0.1:8545)
-- Ollama with Llama3 model
-- macOS (optimized for local development)
+- Local Geth node (http://127.0.0.1:8545)
+- Ollama with Llama3.1 model
+- 0.01+ ETH for trading (simulation mode available)
 
-### Setup
+### Quick Start
 
-1. **Clone the repository**
+1. **Clone and install**
 ```bash
 git clone https://github.com/NuBluStu/eth-intel.git
-cd eth-intel
-```
-
-2. **Install dependencies**
-```bash
-cd packages/runtime
-npm install
-
-cd ../trading-bot
+cd eth-intel/packages/runtime
 npm install
 ```
 
-3. **Configure environment**
+2. **Configure trading**
 ```bash
 cp .env.example .env
-# Edit .env with your settings:
-# - RPC endpoints
-# - Database path
-# - LLM configuration
+# Edit .env with:
+# - PRIVATE_KEY (for real trading)
+# - TRADING_MODE=simulation (or mainnet)
+# - Risk parameters
 ```
 
-4. **Install Ollama and Llama3**
+3. **Install Llama3**
 ```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull Llama3 model
 ollama pull llama3.1:8b
+ollama serve  # Keep running
 ```
 
-5. **Start the system**
+4. **Launch the profit bot**
 ```bash
-# Start interactive chat
-npm run chat
+# Simulation mode (default)
+npm start
 
-# Or run specific queries
-npm run dev "What are the most profitable wallets?"
+# Aggressive mode
+npm run start:aggressive
+
+# Conservative mode
+npm run start:conservative
 ```
 
-## 💬 Usage Examples
+## 🎮 Usage Modes
 
-### Interactive Chat Mode
+### 1. Autonomous Meme Trader
 ```bash
-npm run chat
+npm start
 ```
-
-Ask questions like:
-- "Find safe tokens launched in the last 24 hours"
-- "Show me wallets related to 0x3815..."
-- "What's the current gas price?"
-- "Analyze Uniswap V3 WETH/USDC pool"
-
-### Token Safety Analysis
-```bash
-npx tsx src/analyze-new-tokens.ts
-```
-
-Analyzes new token launches with:
-- Deployer reputation scoring
-- Organic traffic detection
-- Liquidity safety checks
+Runs the main meme coin trader with:
 - Honeypot detection
+- 100-point token scoring
+- Kelly Criterion position sizing
+- Automated profit taking
 
-### Find Deployer-Created Pools
+### 2. LLM Swing Trader
 ```bash
-npx tsx src/find-deployer-pools.ts
+npx tsx src/agents/swing-trader-llm.ts balanced
 ```
+Gives Llama full autonomy to:
+- Analyze tokens every 60 seconds
+- Execute trades based on strategy
+- Manage multiple positions
+- Take profits automatically
 
-Identifies safer tokens where deployers provided initial liquidity.
+### 3. Interactive LLM Chat
+```bash
+npx tsx chat-with-llama.ts
+```
+Direct access to Llama with Ethereum tools:
+- Query blockchain data
+- Analyze tokens
+- Execute trades manually
+- Custom analysis
 
-## 🛠️ Available Tools
+## 💰 Profit Maximization Rules
 
-### Ethereum RPC (40+ methods)
-- `eth_getBalance` - Check wallet balances
-- `eth_getTransactionByHash` - Get transaction details
-- `eth_call` - Read smart contracts
-- `eth_gasPrice` - Current gas prices
-- And many more...
+The system uses 10 sophisticated rules:
+1. **Take 20% profit at 2x**
+2. **Take 30% profit at 5x**
+3. **Take 30% profit at 10x**
+4. **Hold 20% for 20x+ moonshots**
+5. **Stop loss at -25% (configurable)**
+6. **Trailing stop after 3x**
+7. **Volume-based exits**
+8. **Time-based pruning**
+9. **Kelly Criterion sizing**
+10. **Smart money following**
 
-### SQL Analysis
-- `sql_custom` - Write any SELECT query
-- `wallet_top_profit` - Find profitable wallets
-- `project_trending` - Trending projects
-- `token_founders` - Token deployer analysis
+## 🛡️ Safety Features
 
-### Token Tools
-- `token_info` - Get token details
-- `token_balance` - Check balances
-- `token_transfers` - Track movements
-- `is_token` - Verify contracts
+### Honeypot Detection
+- Contract analysis for malicious functions
+- Liquidity lock verification
+- Tax and fee analysis
+- Trading pattern anomalies
 
-### DeFi Tools
-- `uniswap_v2_pool` - V2 pool analysis
-- `uniswap_v3_pool` - V3 pool data
-- `calculate_il` - Impermanent loss
-- `detect_mev` - MEV opportunities
+### Risk Management
+- Maximum position sizes
+- Drawdown limits
+- Gas price monitoring
+- Simulation mode for testing
+
+## 📊 Token Scoring System
+
+100-point evaluation:
+- **Liquidity** (30 points): Pool size, lock status
+- **Smart Money** (25 points): Quality wallet holdings
+- **Volume** (20 points): Trading activity
+- **Holder Distribution** (15 points): Decentralization
+- **Contract Safety** (10 points): Verified, no red flags
+
+Scores:
+- 80-100: 🟢 Strong buy
+- 60-79: 🟡 Moderate opportunity
+- <60: 🔴 Avoid
+
+## 🤖 LLM Trading Tools
+
+Llama has direct access to:
+- `trade.buy(token, amount)` - Execute purchases
+- `trade.sell(token, amount)` - Execute sales
+- `trade.analyze(token)` - Token analysis
+- `trade.positions()` - Current holdings
+- `trade.stats()` - Performance metrics
+- `trade.emergency()` - Panic sell all
+
+## 📈 Performance Tracking
+
+Real-time metrics:
+- Total P&L
+- Win rate
+- Average return per trade
+- Best/worst trades
+- Current positions
+- Gas costs
+
+## ⚠️ Trading Modes
+
+### Simulation (Default)
+- No real trades executed
+- Perfect for testing strategies
+- Uses real market data
+
+### Mainnet (Live)
+- Real money at risk
+- Requires funded wallet
+- Set `EXECUTE_REAL_TRADES=true`
 
 ## 🔒 Security
 
-- **Local-Only**: All data processing happens locally
-- **No API Keys**: No external service dependencies
-- **Private Keys**: Never committed to repository
-- **Encrypted Storage**: Wallet keys use AES-256-GCM
+- **Private Keys**: Never committed, stored in .env
+- **Simulation First**: Always test strategies
+- **Position Limits**: Configurable max sizes
+- **Gas Limits**: Protection from high fees
 
-## 📊 Database Schema
+## ⚡ Commands
 
-The system uses DuckDB with three main tables:
-- `erc20_transfers` - Token transfer events
-- `pools` - Liquidity pool information
-- `dex_events` - DEX swaps, mints, burns
+```bash
+npm start                    # Launch meme trader
+npm run start:aggressive     # High risk/reward mode
+npm run start:conservative   # Low risk mode
+npx tsx chat-with-llama.ts  # Interactive LLM
+```
 
-## 🚦 Token Safety Scoring
+## 🚨 Disclaimer
 
-Tokens are scored on a 100-point scale:
-- **Deployer Reputation** (30 points)
-- **Trading Patterns** (25 points)
-- **Liquidity Safety** (25 points)
-- **Contract Security** (20 points)
+**HIGH RISK WARNING**: Meme coin trading is extremely risky. This software can lose money. Features:
+- Automated trading with real funds
+- High volatility assets
+- Experimental LLM decisions
+- No guarantees of profit
 
-Scores:
-- 80-100: ✅ Safe (Low Risk)
-- 60-79: ⚠️ Moderate Risk
-- <60: ❌ High Risk (Avoid)
-
-## 🤝 Contributing
-
-Contributions are welcome! Please ensure:
-- No private keys or sensitive data in commits
-- Follow existing code patterns
-- Add tests for new features
-- Update documentation
-
-## ⚠️ Disclaimer
-
-This software is for educational purposes only. Cryptocurrency trading carries significant risk. Always do your own research and never invest more than you can afford to lose.
+Only trade what you can afford to lose. Start with simulation mode.
 
 ## 📄 License
 
-MIT License - See LICENSE file for details
+MIT License - Use at your own risk
 
-## 🙏 Acknowledgments
+## 🙏 Built With
 
-- Built with [Viem](https://viem.sh/) for Ethereum interactions
-- Powered by [DuckDB](https://duckdb.org/) for analytics
-- AI capabilities via [Ollama](https://ollama.com/)
-- Trading infrastructure inspired by DeFi best practices
+- [Viem](https://viem.sh/) - Ethereum interactions
+- [Ollama](https://ollama.com/) - Local LLM
+- [TypeScript](https://www.typescriptlang.org/) - Type safety
 
 ---
 
-**Created with ❤️ for the Ethereum community**
+**⚠️ FINANCIAL RISK: This bot trades autonomously. Always monitor and use stop losses.**
