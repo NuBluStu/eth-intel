@@ -3,7 +3,7 @@
  * Handles SQL queries and Parquet file management
  */
 
-import duckdb from "duckdb";
+import * as duckdb from "duckdb";
 import fs from "fs/promises";
 import path from "path";
 

@@ -1,17 +1,15 @@
 {
-  "name": "@onchain-intel/runtime",
+  "name": "@onchain-intel/meme-profit-maximizer",
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "tsx launch-meme-bot.ts",
+    "start:aggressive": "TRADING_MODE=aggressive tsx launch-meme-bot.ts",
+    "start:moderate": "TRADING_MODE=moderate tsx launch-meme-bot.ts",
+    "start:conservative": "TRADING_MODE=conservative tsx launch-meme-bot.ts",
+    "meme": "tsx src/bot/meme-trader.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node --enable-source-maps dist/runtime.js",
-    "dev": "tsx src/runtime.ts",
-    "dev:v2": "tsx src/runtime-v2.ts",
-    "dev:claude": "tsx src/runtime-claude.ts",
-    "dev:advanced": "tsx src/runtime-advanced.ts",
-    "chat": "tsx src/chat-with-ai.ts",
-    "test": "tsx test-queries.ts",
-    "validate": "tsx test-queries.ts"
+    "test": "tsx test-queries.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.60.0",
@@ -23,7 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "tsx": "^4.16.2",
+    "tsx": "^4.20.6",
     "typescript": "^5.5.4"
   }
 }

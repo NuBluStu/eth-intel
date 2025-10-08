@@ -1,255 +1,407 @@
-import { OpenAI } from "openai";
-import { z } from "zod";
-import * as chain from "./tools.chain.js";
-import * as sql from "./tools.sql.js";
+#!/usr/bin/env tsx
+/**
+ * LLM Orchestrator - Connects Llama to Ethereum Node
+ *
+ * This orchestrator allows Llama to directly access your local Ethereum node,
+ * DuckDB, and all blockchain tools through a tool-calling interface.
+ */
 
-const client = new OpenAI({ 
-  baseURL: process.env.LLM_BASE_URL || "http://127.0.0.1:11434/v1", 
-  apiKey: "ollama" 
-});
-const MODEL = process.env.LLM_MODEL || "llama3.1:8b";
+import * as ethRpc from './tools/data/ethRpc.js';
+// import { database } from './tools/data/db.js';  // Commented out - DuckDB issue
+import * as beaconApi from './tools/data/beaconApi.js';
+import { TaskDecomposer } from './services/taskDecomposer.js';
+import { tradingTools } from './tools/trading-tools.js';
+import * as dotenv from 'dotenv';
+import * as readline from 'readline';
 
-const Step = z.object({
-  id: z.string(),
-  tool: z.enum([
-    "chain.rpc",
-    "chain.getLogsWindow",
-    "chain.traceBlockRange",
-    "chain.traceTxBatch",
-    "chain.traceFilter",
-    "chain.traceBlock",
-    "chain.traceTransaction",
-    "sql.query",
-    "sql.materialize"
-  ]),
-  args: z.record(z.any()),
-  why: z.string().max(120).optional(),
-  saveAs: z.string().optional()
-});
-const Plan = z.object({ goal: z.string(), steps: z.array(Step).min(1).max(8) });
+dotenv.config();
 
-export async function answer(question: string) {
-  const plan = await makePlan(question);
-  const summaries: any[] = [];
-  let currentBlock: number | null = null;
-  
-  for (const s of plan.steps) {
-    // Validate and fix block ranges before execution
-    if ((s.tool === "chain.getLogsWindow" || s.tool === "chain.traceFilter") && s.args.fromBlock !== undefined) {
-      // If this is the first step and we haven't gotten current block, get it first
-      if (currentBlock === null && s.id === "s1") {
-        console.log("Warning: Getting current block first before processing logs");
-        const blockHex = await chain.rpc("eth_blockNumber", []);
-        currentBlock = parseInt(blockHex, 16);
-      }
-      
-      // Fix invalid block ranges
-      if (typeof s.args.fromBlock === 'number' && s.args.fromBlock < 1000) {
-        // Likely an incorrect calculation, use last 24h instead
-        if (currentBlock) {
-          s.args.fromBlock = currentBlock - 7200; // Last 24 hours
-          console.log(`Fixed invalid fromBlock to ${s.args.fromBlock} (last 24h)`);
-        }
-      }
-      
-      // Ensure range doesn't exceed 35k blocks
-      if (s.args.toBlock === "latest" && currentBlock && s.args.fromBlock) {
-        const range = currentBlock - s.args.fromBlock;
-        if (range > 35000) {
-          s.args.fromBlock = currentBlock - 35000;
-          console.log(`Adjusted fromBlock to ${s.args.fromBlock} to stay within 35k block limit`);
-        }
-      }
-    }
-    
-    const result = await runStep(s);
-    
-    // Capture current block if this was eth_blockNumber
-    if (s.tool === "chain.rpc" && s.args.method === "eth_blockNumber") {
-      currentBlock = parseInt(result, 16);
-      console.log(`Current block: ${currentBlock}`);
-    }
-    
-    summaries.push(summarize(s, result));
-    if (s.saveAs && s.tool === "sql.query") {
-      await sql.materialize(s.saveAs, s.args.sqlText);
-    }
-  }
-  return synthesize(question, summaries);
-}
+// LLM configuration
+const LLM_BASE_URL = process.env.LLM_BASE_URL || 'http://127.0.0.1:11434/v1';
+const LLM_MODEL = process.env.LLM_MODEL || 'llama3.1:8b';
 
-async function makePlan(question: string) {
-  const sys = `You are an Ethereum planner. Output ONLY JSON: {"goal": "...", "steps":[{"id":"s1","tool":"...","args":{...},"why":"short","saveAs":"opt"}] }.
+/**
+ * Tool Registry - All functions Llama can call
+ */
+const TOOLS = {
+  // Ethereum RPC Methods
+  'eth.getBlock': ethRpc.getBlock,
+  'eth.getBlockNumber': ethRpc.getBlockNumber,
+  'eth.getTransaction': ethRpc.getTransaction,
+  'eth.getTransactionReceipt': ethRpc.getTransactionReceipt,
+  'eth.getBalance': ethRpc.getBalance,
+  'eth.getCode': ethRpc.getCode,
+  'eth.getLogs': ethRpc.getLogs,
+  'eth.call': ethRpc.ethCall,
+  'eth.gasPrice': ethRpc.gasPrice,
 
-CRITICAL RULES:
-1. ALWAYS get current block number FIRST before any time-based queries
-2. Block ranges MUST NOT exceed 35,000 blocks (~5 days at 12s/block)
-3. Time conversions: 1 hour = 300 blocks, 24 hours = 7200 blocks, 1 week = 50400 blocks
-4. For "recent" or "last N hours" queries: currentBlock - (hours * 300)
-5. fromBlock must be a positive integer, NOT "latest" (only toBlock can be "latest")
+  // Database Methods (disabled for now - DuckDB issue)
+  // 'db.query': database.query,
+  // 'db.materialize': database.materialize,
+  // 'db.getTopTokensByVolume': database.getTopTokensByVolume,
+  // 'db.getWalletActivity': database.getWalletActivity,
 
-Available tools:
-- chain.rpc: Call any Ethereum RPC method. Args: {method: string, params: array}
-  ALWAYS START WITH: {"id":"s1","tool":"chain.rpc","args":{"method":"eth_blockNumber"},"why":"Get current block"}
-  Examples:
-  - eth_blockNumber: no params needed
-  - eth_getBalance: params: ["0xADDRESS", "latest"]
-  - eth_gasPrice: no params needed
-  
-- chain.getLogsWindow: Get logs for a block range. Args: {fromBlock: number, toBlock: number|"latest", address?: string, topics?: string[]}
-  MAX RANGE: 35,000 blocks. For larger ranges, split into multiple steps.
-  Example for last 24h: If current block is 6611119, use fromBlock: 6603919, toBlock: 6611119
-  For ERC20 Transfer events use topic: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-  
-- chain.traceBlockRange: Get traces for blocks. Args: {start: number, end: number}
-  Keep ranges small (< 100 blocks) as traces are heavy
-  
-- chain.traceTxBatch: Get traces for transactions. Args: {txHashes: string[]}
-- chain.traceFilter: Filter traces by address. Args: {fromBlock: number, toBlock: number, fromAddress?: string[], toAddress?: string[]}
-- chain.traceBlock: Get all traces for a single block. Args: {blockNumber: number}
-- chain.traceTransaction: Get trace for single tx. Args: {txHash: string}
-- sql.query: Query DuckDB. Args: {sqlText: string, params?: object}
-- sql.materialize: Save query result as table. Args: {name: string, sqlText: string}
+  // Beacon Chain Methods (if Lighthouse is running)
+  'beacon.getSlot': beaconApi.getCurrentSlot,
+  'beacon.getValidators': beaconApi.getValidators,
 
-Example plans:
+  // Analysis Methods
+  'task.decompose': TaskDecomposer.decompose,
+  'task.expand': TaskDecomposer.expandPlan,
 
-1. For any time-based query, ALWAYS start with getting current block:
-{"goal":"Find recent activity","steps":[{"id":"s1","tool":"chain.rpc","args":{"method":"eth_blockNumber"},"why":"Get current block"}]}
+  // Trading Methods (WARNING: Can execute real trades!)
+  'trade.buy': tradingTools.buyToken,
+  'trade.sell': tradingTools.sellToken,
+  'trade.positions': tradingTools.getCurrentPositions,
+  'trade.stats': tradingTools.getTradingStats,
+  'trade.analyze': tradingTools.analyzeToken,
+  'trade.balance': tradingTools.getWalletBalance,
+  'trade.emergency': tradingTools.emergencyStop,
+};
 
-2. Then calculate ranges using actual numbers (not variables):
-If current block is 23138577, last 24h would be: fromBlock: 23131377, toBlock: 23138577
+/**
+ * Tool descriptions for LLM context
+ */
+const TOOL_DESCRIPTIONS = `Available tools you can call:
 
-NEVER use variables like "currentBlock-7200" in JSON. Use actual calculated numbers!
-Bad: {"fromBlock": currentBlock-7200}
-Good: {"fromBlock": 23131377}`;
-  const maxRetries = 3;
-  let lastError: any;
-  let systemPrompt = sys;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+ETHEREUM NODE TOOLS:
+- eth.getBlock(numberOrHash, includeTransactions): Get block data
+- eth.getBlockNumber(): Get current block number
+- eth.getTransaction(hash): Get transaction details
+- eth.getTransactionReceipt(hash): Get transaction receipt
+- eth.getBalance(address): Get ETH balance of address
+- eth.getCode(address): Check if address is a contract
+- eth.getLogs(filter): Get event logs (filter has: fromBlock, toBlock, address, topics)
+- eth.call(transaction): Call contract method without sending transaction
+- eth.gasPrice(): Get current gas price
+
+DATABASE TOOLS: (temporarily disabled - DuckDB dependency issue)
+
+BEACON CHAIN TOOLS:
+- beacon.getSlot(): Get current beacon chain slot
+- beacon.getValidators(stateId): Get validator information
+
+ANALYSIS TOOLS:
+- task.decompose(question, context): Break complex question into subtasks
+- task.expand(plan, question): Expand plan with more details
+
+TRADING TOOLS (⚠️ WARNING: Can execute real trades!):
+- trade.buy(tokenAddress, amountETH): Buy ERC-20 token with ETH
+- trade.sell(tokenAddress, amountTokens): Sell ERC-20 token for ETH
+- trade.positions(): Get current open positions
+- trade.stats(): Get trading performance statistics
+- trade.analyze(tokenAddress): Analyze token for trading opportunity
+- trade.balance(): Get wallet balance
+- trade.emergency(): Emergency close all positions
+
+To call a tool, respond with:
+TOOL_CALL: toolName(arg1, arg2, ...)
+
+Example:
+TOOL_CALL: eth.getBlockNumber()
+TOOL_CALL: eth.getBalance("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
+TOOL_CALL: trade.analyze("0x6982508145454Ce325dDbE47a25d4ec3d2311933")
+TOOL_CALL: trade.buy("0x6982508145454Ce325dDbE47a25d4ec3d2311933", 0.001)`;
+
+/**
+ * Parse tool call from LLM response
+ */
+function parseToolCall(response: string): { tool: string; args: any[] } | null {
+  const match = response.match(/TOOL_CALL:\s*([a-zA-Z.]+)\((.*?)\)/);
+  if (!match) return null;
+
+  const tool = match[1];
+  const argsStr = match[2];
+
+  // Parse arguments (simple JSON parsing)
+  let args = [];
+  if (argsStr) {
     try {
-      const rsp = await client.chat.completions.create({
-        model: MODEL, 
-        temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.2"),
-        max_tokens: parseInt(process.env.LLM_MAX_TOKENS || "2048"),
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `Question: ${question}\nReturn ONLY JSON plan. No markdown, no explanation, just pure JSON.` }
-        ]
-      });
-      
-      let text = rsp.choices[0]?.message?.content || "{}";
-      console.log(`Raw LLM response (attempt ${attempt}):`, text.substring(0, 500));
-      
-      // Clean up common LLM response issues
-      text = text.trim();
-      // Remove markdown code blocks if present
-      text = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '');
-      text = text.replace(/^```\s*/i, '').replace(/```\s*$/, '');
-      
-      // Try to extract JSON if there's extra text
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        text = jsonMatch[0];
+      // Handle both JSON and simple comma-separated args
+      if (argsStr.includes('{') || argsStr.includes('[')) {
+        args = [JSON.parse(argsStr)];
+      } else {
+        // Split by comma and clean up
+        args = argsStr.split(',').map(arg => {
+          arg = arg.trim();
+          // Remove quotes if present
+          if ((arg.startsWith('"') && arg.endsWith('"')) ||
+              (arg.startsWith("'") && arg.endsWith("'"))) {
+            return arg.slice(1, -1);
+          }
+          // Try to parse as number
+          const num = Number(arg);
+          if (!isNaN(num)) return num;
+          // Return as string
+          return arg;
+        });
       }
-      
-      const json = JSON.parse(text);
-      return Plan.parse(json);
     } catch (e) {
-      lastError = e;
-      console.log(`Plan generation attempt ${attempt} failed: ${e}`);
-      
-      if (attempt < maxRetries) {
-        // Add more explicit instructions on retry
-        systemPrompt += `\n\nIMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no explanations.`;
-      }
+      console.error('Failed to parse args:', argsStr);
+      args = [];
     }
   }
-  
-  // Fallback: create a simple plan to at least get current block
-  console.log("Using fallback plan due to JSON parsing failures");
-  return Plan.parse({
-    goal: "Get blockchain info for: " + question,
-    steps: [
-      { id: "s1", tool: "chain.rpc", args: { method: "eth_blockNumber" }, why: "Get current block" }
-    ]
-  });
+
+  return { tool, args };
 }
 
-async function runStep(s: z.infer<typeof Step>) {
-  console.log(`Executing step ${s.id}: ${s.tool}`, JSON.stringify(s.args, null, 2));
-  
-  switch (s.tool) {
-    case "chain.rpc":            
-      return chain.rpc(s.args.method, s.args.params || []);
-    case "chain.getLogsWindow":  
-      return chain.getLogsWindow({
-        fromBlock: s.args.fromBlock,
-        toBlock: s.args.toBlock,
-        address: s.args.address,
-        topics: s.args.topics
-      });
-    case "chain.traceBlockRange":
-      return chain.traceBlockRange({
-        start: s.args.start,
-        end: s.args.end
-      });
-    case "chain.traceTxBatch":   
-      return chain.traceTxBatch({
-        txHashes: s.args.txHashes
-      });
-    case "chain.traceFilter":
-      return chain.traceFilter({
-        fromBlock: s.args.fromBlock,
-        toBlock: s.args.toBlock,
-        fromAddress: s.args.fromAddress,
-        toAddress: s.args.toAddress
-      });
-    case "chain.traceBlock":
-      return chain.traceBlock({
-        blockNumber: s.args.blockNumber
-      });
-    case "chain.traceTransaction":
-      return chain.traceTransaction({
-        txHash: s.args.txHash
-      });
-    case "sql.query":            
-      return sql.query(s.args.sqlText, s.args.params);
-    case "sql.materialize":      
-      return sql.materialize(s.args.name, s.args.sqlText);
+/**
+ * Execute tool call
+ */
+async function executeTool(toolName: string, args: any[]): Promise<any> {
+  const tool = TOOLS[toolName];
+  if (!tool) {
+    return { error: `Unknown tool: ${toolName}` };
+  }
+
+  try {
+    console.log(`\n🔧 Executing: ${toolName}(${args.map(a => JSON.stringify(a)).join(', ')})`);
+    const result = await tool(...args);
+
+    // Convert BigInt to string for JSON serialization
+    if (typeof result === 'bigint') {
+      return result.toString();
+    }
+
+    return result;
+  } catch (error) {
+    return { error: `Tool execution failed: ${error.message}` };
   }
 }
 
-function summarize(step: any, res: any) {
-  // Convert BigInt to string for JSON serialization
-  const sanitize = (obj: any): any => {
-    if (typeof obj === 'bigint') return obj.toString();
-    if (Array.isArray(obj)) return obj.map(sanitize);
-    if (obj && typeof obj === 'object') {
-      const result: any = {};
-      for (const [key, value] of Object.entries(obj)) {
-        result[key] = sanitize(value);
-      }
-      return result;
+/**
+ * Send prompt to Llama and get response
+ */
+async function queryLlama(prompt: string, context: string = ''): Promise<string> {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are an Ethereum blockchain analyst with direct access to a local Ethereum node and database.
+
+${TOOL_DESCRIPTIONS}
+
+${context}
+
+Always explain what you're doing before making tool calls.
+You can make multiple tool calls to answer complex questions.
+After getting results, analyze them and provide insights.`
+    },
+    {
+      role: 'user',
+      content: prompt
     }
-    return obj;
-  };
-  
-  const sanitized = sanitize(res);
-  if (Array.isArray(sanitized)) return { id: step.id, tool: step.tool, rows: sanitized.length, sample: sanitized.slice(0,3) };
-  if (typeof sanitized === "object") return { id: step.id, tool: step.tool, keys: Object.keys(sanitized).slice(0,10), sample: sanitized };
-  return { id: step.id, tool: step.tool, value: sanitized };
+  ];
+
+  try {
+    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        messages,
+        temperature: 0.2,
+        max_tokens: 2000
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`LLM request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+  } catch (error) {
+    console.error('❌ LLM query failed:', error);
+    throw error;
+  }
 }
 
-async function synthesize(question: string, summaries: any[]) {
-  const sys = `You are an Ethereum analyst. Using the step summaries, provide a concise answer with concrete numbers and a short "what I did". If partial, say so.`;
-  const rsp = await client.chat.completions.create({
-    model: MODEL, 
-    temperature: parseFloat(process.env.LLM_TEMPERATURE || "0.3"),
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: `Question: ${question}\nSummaries:\n${JSON.stringify(summaries, null, 2)}` }
-    ]
-  });
-  return rsp.choices[0]?.message?.content || "";
+/**
+ * Main orchestration loop
+ */
+async function orchestrate(question: string, maxIterations = 10): Promise<string> {
+  let context = '';
+  let iteration = 0;
+  let finalAnswer = '';
+
+  console.log(`\n🤖 Processing: "${question}"\n`);
+
+  while (iteration < maxIterations) {
+    iteration++;
+
+    // Query Llama with current context
+    const response = await queryLlama(question, context);
+    console.log(`\n💭 Llama says:\n${response}\n`);
+
+    // Check if Llama wants to call a tool
+    const toolCall = parseToolCall(response);
+
+    if (toolCall) {
+      // Execute the tool
+      const result = await executeTool(toolCall.tool, toolCall.args);
+
+      // Add result to context for next iteration
+      context += `\n\nTool call: ${toolCall.tool}(${toolCall.args.join(', ')})\n`;
+      context += `Result: ${JSON.stringify(result, null, 2)}\n`;
+
+      console.log(`\n📊 Result:`, result);
+
+      // Continue conversation
+      question = "Based on that result, continue your analysis or call another tool if needed.";
+    } else {
+      // No tool call, Llama is done
+      finalAnswer = response;
+      break;
+    }
+  }
+
+  return finalAnswer || "Analysis complete.";
 }
+
+/**
+ * Interactive CLI mode
+ */
+async function interactiveCLI() {
+  console.log(`
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║     🤖 LLAMA + ETHEREUM ORCHESTRATOR                         ║
+║                                                                ║
+║     Your local Llama now has direct access to:               ║
+║     • Ethereum node (Geth)                                   ║
+║     • DuckDB database                                        ║
+║     • Beacon chain (if running)                              ║
+║                                                                ║
+║     Type your questions in plain English!                    ║
+║     Examples:                                                ║
+║     - "What's the current block number?"                     ║
+║     - "Find the top 10 most active wallets today"           ║
+║     - "Which tokens had the most transfers in the last hour?"║
+║     - "Analyze wallet 0x742d35Cc..."                        ║
+║                                                                ║
+║     Type 'exit' to quit                                      ║
+╚════════════════════════════════════════════════════════════════╝
+  `);
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: '\n🔮 Ask Llama > '
+  });
+
+  rl.prompt();
+
+  rl.on('line', async (input) => {
+    const question = input.trim();
+
+    if (question.toLowerCase() === 'exit') {
+      console.log('\n👋 Goodbye!\n');
+      rl.close();
+      process.exit(0);
+    }
+
+    if (question) {
+      try {
+        const answer = await orchestrate(question);
+        console.log(`\n✨ FINAL ANSWER:\n${answer}\n`);
+      } catch (error) {
+        console.error(`\n❌ Error: ${error.message}\n`);
+      }
+    }
+
+    rl.prompt();
+  });
+}
+
+/**
+ * Batch mode - process a single question
+ */
+async function batchMode(question: string) {
+  try {
+    const answer = await orchestrate(question);
+    console.log(`\n✨ FINAL ANSWER:\n${answer}\n`);
+  } catch (error) {
+    console.error(`\n❌ Error: ${error.message}\n`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Test connectivity
+ */
+async function testConnections() {
+  console.log('\n🔍 Testing connections...\n');
+
+  // Test Ethereum node
+  try {
+    const blockNumber = await ethRpc.getBlockNumber();
+    console.log(`✅ Ethereum node connected (block: ${blockNumber})`);
+  } catch (e) {
+    console.log(`❌ Ethereum node not accessible`);
+  }
+
+  // Test DuckDB (disabled for now)
+  // try {
+  //   const result = await database.query('SELECT 1 as test');
+  //   console.log(`✅ DuckDB connected`);
+  // } catch (e) {
+  //   console.log(`❌ DuckDB not accessible`);
+  // }
+
+  // Test Llama
+  try {
+    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        messages: [{ role: 'user', content: 'Say "connected"' }],
+        max_tokens: 10
+      })
+    });
+    if (response.ok) {
+      console.log(`✅ Llama LLM connected (${LLM_MODEL})`);
+    } else {
+      console.log(`❌ Llama not responding`);
+    }
+  } catch (e) {
+    console.log(`❌ Llama not accessible at ${LLM_BASE_URL}`);
+    console.log(`   Run: ollama serve`);
+    console.log(`   Then: ollama pull ${LLM_MODEL}`);
+  }
+
+  console.log('');
+}
+
+/**
+ * Main entry point
+ */
+async function main() {
+  // Test connections first
+  await testConnections();
+
+  // Check for command line argument
+  const args = process.argv.slice(2);
+  if (args.length > 0) {
+    // Batch mode - process single question
+    const question = args.join(' ');
+    await batchMode(question);
+  } else {
+    // Interactive mode
+    await interactiveCLI();
+  }
+}
+
+// Handle errors
+process.on('uncaughtException', (error) => {
+  console.error('❌ Fatal error:', error);
+  process.exit(1);
+});
+
+// Run if called directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(console.error);
+}
+
+// Export for use in other modules
+export { orchestrate, executeTool, TOOLS };
